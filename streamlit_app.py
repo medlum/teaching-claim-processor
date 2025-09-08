@@ -335,7 +335,7 @@ if st.session_state.current_step == 0:  # Filter ASRQ180
     **Objective**: Filter data by adjunct and remove duplicates in ARSQ180.
     
     **Instructions**: 
-    1. Upload ASRR180 file 
+    1. Upload ASRQ180 file 
     2. The app will filter the data and show you the results
     3. Download the filtered data and proceed to Step 2
     """)
