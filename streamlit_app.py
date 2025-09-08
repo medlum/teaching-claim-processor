@@ -335,7 +335,7 @@ if st.session_state.current_step == 0:  # Filter ASRQ180
     **Objective**: Filter data by adjunct and remove duplicates in ARSQ180.
     
     **Instructions**: 
-    1. Upload your main data file (test_data.xlsx)
+    1. Upload ASRR180 file 
     2. The app will filter the data and show you the results
     3. Download the filtered data and proceed to Step 2
     """)
@@ -383,7 +383,7 @@ elif st.session_state.current_step == 1:  # Merge ASRQ180 headers with Hiring Fo
     **Objective**: Partial match 'Name' column from ASRQ180 with Hiring Form 'Full Name' Column.
     
     **Instructions**: 
-    1. Upload your lookup data file (position_program_id_lookup.xlsx)
+    1. Upload hiring form
     2. The app will merge the filtered data with the lookup data
     3. Download the merged data and proceed to Step 3
     """)
