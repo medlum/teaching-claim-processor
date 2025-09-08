@@ -1,0 +1,35 @@
+Step 1: Filter data by adjunct and remove duplicates in ARSQ180
+
+Step 2: Create a set of date range with Day of Week and map to ARSQ180. 
+This will create 18 weeks rows of data.
+Example of set of date range:
+Mon: ['2025-04-21', '2025-04-28', '2025-05-05', '2025-05-12', '2025-05-19']...
+Tue: ['2025-04-22', '2025-04-29', '2025-05-06', '2025-05-13', '2025-05-20']...
+Wed: ['2025-04-23', '2025-04-30', '2025-05-07', '2025-05-14', '2025-05-21']...
+Thu: ['2025-04-24', '2025-05-01', '2025-05-08', '2025-05-15', '2025-05-22']...
+Fri: ['2025-04-25', '2025-05-02', '2025-05-09', '2025-05-16', '2025-05-23']...
+Sat: ['2025-04-26', '2025-05-03', '2025-05-10', '2025-05-17', '2025-05-24']...
+
+Step 3: Partial match 'Name' column from ASRQ180 with Hiring Form 'Full Name' Column, then extract:
+
+Emp ID - from Hiring Form
+Full Legal Name - from Hiring Form
+Time Entry Code	Name - from Hiring Form
+Date - Main data
+Start Time - Main data
+End Time - Main data	
+Position ID - from Hiring Form	
+Program	ID - from Hiring Form
+Comment - from Hiring Form
+
+
+*noted that ID from ASRQ180 is different from Emply ID from Hiring Form
+* Don't need to use AL List worksheet as I do partial match.
+
+
+I partial match 'Requester Remarks' column from Hiring Form with 'Catalog Nbr' column from ASRQ180 in other to match Program ID correctly.
+Because some AL has 2 different Program IDs.
+
+Full Legal Name	Position ID 	Program ID
+NGIAM TEE WOH	P-11070782	NPO_PR0207 (BS)
+NGIAM TEE WOH	P-11070782 	NPO_PR0218 (PFP)
