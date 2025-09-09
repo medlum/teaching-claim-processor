@@ -17,18 +17,14 @@ def has_max_two_letters(value):
     letters = ''.join([char for char in str(value) if char.isalpha()])
     return len(letters) <= 2
 
-
-# Apply the Class Section filter
-filtered_df = email_filtered[email_filtered['Class Section'].apply(
-    has_max_two_letters)]
-
 # Function to expand rows with multiple values in Day column
 
 
 def expand_day_column(df):
     # Create a list to store the expanded rows
     expanded_rows = []
-
+    #  Count rows with more than a single value: MON - SAT
+    multidays_count = 0
     # Iterate over each row in the input DataFrame
     for _, row in df.iterrows():
         # Get the Day value and split it into individual days
@@ -44,15 +40,21 @@ def expand_day_column(df):
                 new_row = row.copy()
                 new_row['Day'] = day
                 expanded_rows.append(new_row.to_dict())
+            multidays_count += 1
 
     # Create a new DataFrame from the expanded rows
     expanded_df = pd.DataFrame(expanded_rows)
-    return expanded_df
+    return multidays_count, expanded_df
 
+
+# Apply the Class Section filter
+filtered_df = email_filtered[email_filtered['Class Section'].apply(
+    has_max_two_letters)]
 
 # Apply the expansion function to the filtered DataFrame
-expanded_df = expand_day_column(filtered_df)
+multidays_count, expanded_df = expand_day_column(filtered_df)
 
+print(multidays_count)
 # Display the result
 print(expanded_df)
 

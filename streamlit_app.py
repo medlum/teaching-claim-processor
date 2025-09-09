@@ -6,15 +6,15 @@ from io import BytesIO
 
 # Set page configuration
 st.set_page_config(
-    page_title="Adjunct Lecturer Teaching Claim Processor",
+    page_title="Teaching Claim Process",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # Define step names
-STEP_NAMES = ['Filter ASRQ180', 'Merge ASRQ180 headers with Hiring Form',
-              'Expand rows with date range']
+STEP_NAMES = ['Clean Data', 'Merge Headers',
+              'Date Transform']
 
 # Initialize session state variables
 if 'step1_data' not in st.session_state:
@@ -53,6 +53,8 @@ def filter_data(df):
 def expand_day_column(df):
     # Create a list to store the expanded rows
     expanded_rows = []
+    #  Count rows with more than a single value: MON - SAT
+    multidays_count = 0
 
     # Iterate over each row in the input DataFrame
     for _, row in df.iterrows():
@@ -69,23 +71,33 @@ def expand_day_column(df):
                 new_row = row.copy()
                 new_row['Day'] = day
                 expanded_rows.append(new_row.to_dict())
+            multidays_count += 1
 
     # Create a new DataFrame from the expanded rows
     expanded_df = pd.DataFrame(expanded_rows)
-    return expanded_df
+    return multidays_count, expanded_df
 
 
 def merge_with_partial_match(filtered_df, lookup_df):
-    """Step 2: Merge data with partial matching"""
+    """
+    Merges two DataFrames based on partial name matching and catalog/remarks matching.
+    Args:
+        filtered_df (pd.DataFrame): DataFrame from filtered_results.xlsx
+        lookup_df (pd.DataFrame): DataFrame from position_program_id_lookup.xlsx
+    Returns:
+        tuple: (merged_df, unmatched_df, unmatched_count)
+            - merged_df (pd.DataFrame): Merged DataFrame with required columns
+            - unmatched_df (pd.DataFrame): DataFrame containing unmatched rows
+            - unmatched_count (int): Count of unmatched rows
+    """
     # Create a copy to avoid modifying original DataFrames
     filtered = filtered_df.copy()
     lookup = lookup_df.copy()
-
     # Preprocess names for comparison - convert to uppercase and split into words
     filtered['name_words'] = filtered['Name'].str.upper().str.split()
     lookup['lookup_words'] = lookup['Full Legal Name'].str.upper().str.split()
-
     # Function to check if names are a partial match
+
     def is_partial_match(name1, name2, min_common_tokens=2):
         # Convert to sets
         set1 = set(name1)
@@ -97,7 +109,7 @@ def merge_with_partial_match(filtered_df, lookup_df):
         common = set1.intersection(set2)
         return len(common) >= min_common_tokens
 
-     # Improved function to check if catalog number and requester remarks have a partial match
+    # Improved function to check if catalog number and requester remarks have a partial match
     def is_catalog_match(catalog, remarks):
         # Handle NaN values
         if pd.isna(catalog) or pd.isna(remarks):
@@ -105,25 +117,20 @@ def merge_with_partial_match(filtered_df, lookup_df):
         # Convert to strings and strip whitespace
         catalog_str = str(catalog).strip().replace(' ', '')
         remarks_str = str(remarks).strip()
-
         # Check if one string contains the other
         if (catalog_str in remarks_str) or (remarks_str in catalog_str):
             return True
-
         # Extract only alphabetic characters from catalog_str
         catalog_alpha = ''.join([c for c in catalog_str if c.isalpha()])
         if catalog_alpha and (catalog_alpha in remarks_str):
             return True
-
         # Additional check: see if any word in catalog_str is in remarks_str
         catalog_words = catalog_str.split('_')
         for word in catalog_words:
             word_alpha = ''.join([c for c in word if c.isalpha()])
             if word_alpha and word_alpha in remarks_str:
                 return True
-
         return False
-
     # Create empty result DataFrame
     result_columns = [
         'Empl ID',
@@ -140,27 +147,22 @@ def merge_with_partial_match(filtered_df, lookup_df):
         'Name'
     ]
     result_df = pd.DataFrame(columns=result_columns)
-
     # Track unmatched rows
     unmatched_count = 0
-
+    unmatched_rows = []  # Store unmatched rows here
     # Iterate through each row in filtered DataFrame
     for _, filt_row in filtered.iterrows():
         filt_name = filt_row['name_words']
         catalog_nbr = filt_row['Catalog Nbr'] if 'Catalog Nbr' in filt_row else None
         match_found = False
-
         # Iterate through each row in lookup DataFrame
         for _, lookup_row in lookup.iterrows():
             lookup_name = lookup_row['lookup_words']
             requester_remarks = lookup_row['Requester Remarks'] if 'Requester Remarks' in lookup_row else None
-
             # Check for partial name match
             name_match = is_partial_match(filt_name, lookup_name)
-
             # Check for catalog/remarks match
             catalog_match = is_catalog_match(catalog_nbr, requester_remarks)
-
             # If both conditions are met, create a new row
             if name_match and catalog_match:
                 # Create new row with required data
@@ -183,11 +185,15 @@ def merge_with_partial_match(filtered_df, lookup_df):
                     [result_df, pd.DataFrame([new_row])], ignore_index=True)
                 match_found = True
                 break  # Stop after first match
-
         if not match_found:
             unmatched_count += 1
+            # Store the original row without the added 'name_words' column
+            unmatched_rows.append(filt_row.drop('name_words'))
+    # Create DataFrame from unmatched rows
+    unmatched_df = pd.DataFrame(unmatched_rows)
 
-    return result_df, unmatched_count
+    # Return all three values: merged DataFrame, unmatched DataFrame, and unmatched count
+    return result_df, unmatched_df, unmatched_count
 
 
 def create_weekday_date_dict(start_date_str, end_date_str):
@@ -316,7 +322,7 @@ st.sidebar.markdown("### Current Step")
 
 # Create a radio button with step names
 selected_step_name = st.sidebar.radio(
-    "Select Step",
+    "**Select Step**",
     STEP_NAMES,
     index=st.session_state.current_step
 )
@@ -325,24 +331,27 @@ selected_step_name = st.sidebar.radio(
 st.session_state.current_step = STEP_NAMES.index(selected_step_name)
 
 # Main content area
-st.title("Adjunct Lecturer Data Processing Workflow")
+st.title("Teaching Claim Workflow")
 st.markdown("### Process your data in three simple steps")
 
 # Step 1: Filter Data
 if st.session_state.current_step == 0:  # Filter ASRQ180
     st.header("Step 1: Filter ASRQ180")
     st.markdown("""
-    **Objective**: Filter data by adjunct and remove duplicates in ARSQ180.
+    **Objective**: \n
+        - Filter data by adjunct (@ADJ.NP.EDU.SG)
+        - Remove duplicates (class section with 3 letters) 
+        - Expand rows (Day column with more than a weekday).
     
     **Instructions**: 
-    1. Upload ASRQ180 file 
-    2. The app will filter the data and show you the results
-    3. Download the filtered data and proceed to Step 2
+    1. Upload a ASRQ180 file.
+    2. The app will filter, remove and expand rows and display results.
+    3. Download the filtered data and proceed to Step 2.
     """)
 
     # File upload
     uploaded_file = st.file_uploader(
-        "Upload your main data file (Excel format)", type=["xlsx"])
+        "**Upload ASRQ180 (xlsx file)**", type=["xlsx"])
 
     if uploaded_file is not None:
         # Read the Excel file
@@ -352,14 +361,15 @@ if st.session_state.current_step == 0:  # Filter ASRQ180
         with st.spinner("Processing your data..."):
             filtered_df = filter_data(df)
             # Apply the expansion function to the filtered DataFrame
-            filtered_df = expand_day_column(filtered_df)
+            multiday, filtered_df = expand_day_column(filtered_df)
             st.session_state.step1_data = filtered_df
 
         # Display results
-        st.subheader("Filtered Data")
+        st.subheader("Filtered Data Results")
         st.write(f"Original rows: {len(df)}")
         st.write(f"Filtered rows: {len(filtered_df)}")
-        st.dataframe(filtered_df.head(10))
+        st.write(f"Expanded rows with multiple DAY: {multiday}")
+        st.dataframe(filtered_df)
 
         # Download button
         st.download_button(
@@ -378,7 +388,7 @@ if st.session_state.current_step == 0:  # Filter ASRQ180
 
 # Step 2: Merge Data
 elif st.session_state.current_step == 1:  # Merge ASRQ180 headers with Hiring Form
-    st.header("Step 2: Merge ASRQ180 headers with Hiring Form")
+    st.header("Step 2: Merge ASRQ180 with Hiring Form")
     st.markdown("""
     **Objective**: Partial match 'Name' column from ASRQ180 with Hiring Form 'Full Name' Column.
     
@@ -422,16 +432,22 @@ elif st.session_state.current_step == 1:  # Merge ASRQ180 headers with Hiring Fo
             else:
                 # Process the data
                 with st.spinner("Merging data..."):
-                    merged_df, unmatched_count = merge_with_partial_match(
+                    merged_df, unmatched_df, unmatched_count = merge_with_partial_match(
                         st.session_state.step1_data, lookup_df)
                     st.session_state.step2_data = merged_df
 
-                # Display results
-                st.subheader("Merged Data")
+                st.subheader("Merge Results Summary")
                 st.write(f"Filtered rows: {len(st.session_state.step1_data)}")
                 st.write(f"Merged rows: {len(merged_df)}")
-                st.write(f"Unmatched rows: {unmatched_count}")
-                st.dataframe(merged_df.head(10))
+                st.dataframe(merged_df)
+
+                # Display unmatched rows instead of merged data
+                st.subheader("Unmatched Rows")
+                if unmatched_count > 0:
+                    # st.write(f"Unmatched rows: {unmatched_count}")
+                    st.write(
+                        f"Displaying {unmatched_count} unmatched rows:")
+                    st.dataframe(unmatched_df)
 
                 # Download button
                 st.download_button(
@@ -503,7 +519,7 @@ elif st.session_state.current_step == 2:  # Expand rows with date range
             st.write(f"Merged rows: {len(st.session_state.step2_data)}")
             st.write(f"Expanded rows: {len(expanded_df)}")
             st.write(f"Skipped rows: {skipped_rows}")
-            st.dataframe(expanded_df.head(10))
+            st.dataframe(expanded_df)
 
             # Download button
             st.download_button(
@@ -512,7 +528,6 @@ elif st.session_state.current_step == 2:  # Expand rows with date range
                 file_name="expanded_with_dates.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-
             # Success message
             st.success("Processing complete! You can download your final data.")
         else:
@@ -528,6 +543,8 @@ st.sidebar.markdown("""
 4. Download the processed data
 5. Proceed to the next step
 """)
+
+st.sidebar.divider()
 
 st.sidebar.markdown("### About")
 st.sidebar.markdown("""

@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 
-
 def merge_with_partial_match(filtered_df, lookup_df):
     """
     Merges two DataFrames based on partial name matching and catalog/remarks matching.
@@ -9,7 +8,10 @@ def merge_with_partial_match(filtered_df, lookup_df):
         filtered_df (pd.DataFrame): DataFrame from filtered_results.xlsx
         lookup_df (pd.DataFrame): DataFrame from position_program_id_lookup.xlsx
     Returns:
-        pd.DataFrame: Merged DataFrame with required columns
+        tuple: (merged_df, unmatched_df, unmatched_count)
+            - merged_df (pd.DataFrame): Merged DataFrame with required columns
+            - unmatched_df (pd.DataFrame): DataFrame containing unmatched rows
+            - unmatched_count (int): Count of unmatched rows
     """
     # Create a copy to avoid modifying original DataFrames
     filtered = filtered_df.copy()
@@ -18,7 +20,6 @@ def merge_with_partial_match(filtered_df, lookup_df):
     filtered['name_words'] = filtered['Name'].str.upper().str.split()
     lookup['lookup_words'] = lookup['Full Legal Name'].str.upper().str.split()
     # Function to check if names are a partial match
-
     def is_partial_match(name1, name2, min_common_tokens=2):
         # Convert to sets
         set1 = set(name1)
@@ -29,7 +30,7 @@ def merge_with_partial_match(filtered_df, lookup_df):
         # Check if there are enough common tokens
         common = set1.intersection(set2)
         return len(common) >= min_common_tokens
-
+    
     # Improved function to check if catalog number and requester remarks have a partial match
     def is_catalog_match(catalog, remarks):
         # Handle NaN values
@@ -38,25 +39,20 @@ def merge_with_partial_match(filtered_df, lookup_df):
         # Convert to strings and strip whitespace
         catalog_str = str(catalog).strip().replace(' ', '')
         remarks_str = str(remarks).strip()
-
         # Check if one string contains the other
         if (catalog_str in remarks_str) or (remarks_str in catalog_str):
             return True
-
         # Extract only alphabetic characters from catalog_str
         catalog_alpha = ''.join([c for c in catalog_str if c.isalpha()])
         if catalog_alpha and (catalog_alpha in remarks_str):
             return True
-
         # Additional check: see if any word in catalog_str is in remarks_str
         catalog_words = catalog_str.split('_')
         for word in catalog_words:
             word_alpha = ''.join([c for c in word if c.isalpha()])
             if word_alpha and word_alpha in remarks_str:
                 return True
-
         return False
-
     # Create empty result DataFrame
     result_columns = [
         'Empl ID',
@@ -75,6 +71,7 @@ def merge_with_partial_match(filtered_df, lookup_df):
     result_df = pd.DataFrame(columns=result_columns)
     # Track unmatched rows
     unmatched_count = 0
+    unmatched_rows = []  # Store unmatched rows here
     # Iterate through each row in filtered DataFrame
     for _, filt_row in filtered.iterrows():
         filt_name = filt_row['name_words']
@@ -112,11 +109,13 @@ def merge_with_partial_match(filtered_df, lookup_df):
                 break  # Stop after first match
         if not match_found:
             unmatched_count += 1
-    print(f"Processed {len(filtered)} rows from filtered DataFrame")
-    print(f"Found matches for {len(result_df)} rows")
-    print(f"Unmatched rows: {unmatched_count}")
-    return result_df
-
+            # Store the original row without the added 'name_words' column
+            unmatched_rows.append(filt_row.drop('name_words'))
+    # Create DataFrame from unmatched rows
+    unmatched_df = pd.DataFrame(unmatched_rows)
+    
+    # Return all three values: merged DataFrame, unmatched DataFrame, and unmatched count
+    return result_df, unmatched_df, unmatched_count
 
 # Read the Excel files
 filtered_df = pd.read_excel('processed_data/filtered_results.xlsx')
@@ -126,8 +125,21 @@ lookup_df = pd.read_excel('subset_data/all_hiring_form.xlsx')
 print("Columns in filtered DataFrame:", filtered_df.columns.tolist())
 print("Columns in lookup DataFrame:", lookup_df.columns.tolist())
 # Perform the merge with partial matching
-result_df = merge_with_partial_match(filtered_df, lookup_df)
+result_df, unmatched_df, unmatched_count = merge_with_partial_match(filtered_df, lookup_df)
 # Save the result
 result_df.to_excel('processed_data/merged_output.xlsx', index=False)
 # Display the first few rows
+print("\nMerged result sample:")
 print(result_df.head())
+
+# Print statistics and sample of unmatched rows
+print(f"\nProcessed {len(filtered_df)} rows from filtered DataFrame")
+print(f"Found matches for {len(result_df)} rows")
+print(f"Unmatched rows: {unmatched_count}")
+if unmatched_count > 0:
+    print("\nSample of unmatched rows:")
+    print(unmatched_df.head())
+    # Save unmatched rows to Excel
+    unmatched_df.to_excel(
+        'processed_data/unmatched_rows.xlsx', index=False)
+    print("\nUnmatched rows saved to 'processed_data/unmatched_rows.xlsx'")
