@@ -1,4 +1,8 @@
 archive/
 data/
-process_data/
+processed_data/
 subset_data/
+*.pdf
+*.docx
+*.bat
+

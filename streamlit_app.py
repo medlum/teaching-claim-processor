@@ -26,9 +26,23 @@ if 'step3_data' not in st.session_state:
 if 'current_step' not in st.session_state:
     st.session_state.current_step = 0  # Using 0-based index for step names
 
+
+def safe_read_excel(uploaded_file, required_columns=None):
+    try:
+        df = pd.read_excel(uploaded_file)
+    except Exception as e:
+        st.error(f"Failed to read file: {e}")
+        st.stop()
+
+    if required_columns:
+        missing = [c for c in required_columns if c not in df.columns]
+        if missing:
+            st.error(f"File is missing required columns: {', '.join(missing)}")
+            st.stop()
+    return df
+
+
 # Define processing functions
-
-
 def filter_data(df):
     """Step 1: Filter data by adjunct and remove duplicates in ARSQ180"""
     # Filter rows containing "@adj.np.edu.sg" in Email (case insensitive)
@@ -317,12 +331,12 @@ def to_excel(df):
 
 
 # Sidebar for navigation
-st.sidebar.title("Workflow Steps")
-st.sidebar.markdown("### Current Step")
+st.sidebar.markdown("**Workflow Steps**")
+# st.sidebar.markdown("### Current Step")
 
 # Create a radio button with step names
 selected_step_name = st.sidebar.radio(
-    "**Select Step**",
+    "**Select step**",
     STEP_NAMES,
     index=st.session_state.current_step
 )
@@ -331,12 +345,12 @@ selected_step_name = st.sidebar.radio(
 st.session_state.current_step = STEP_NAMES.index(selected_step_name)
 
 # Main content area
-st.title("Teaching Claim Workflow")
-st.markdown("### Process your data in three simple steps")
+st.title(":blue[Teaching Claim Workflow]")
+st.markdown("#### :gray[Process your data in three simple steps]")
 
 # Step 1: Filter Data
 if st.session_state.current_step == 0:  # Filter ASRQ180
-    st.header("Step 1: Filter ASRQ180")
+    st.markdown("### Step 1: Filter ASRQ180")
     st.markdown("""
     **Objective**: \n
         - Filter data by adjunct (@ADJ.NP.EDU.SG)
@@ -351,11 +365,14 @@ if st.session_state.current_step == 0:  # Filter ASRQ180
 
     # File upload
     uploaded_file = st.file_uploader(
-        "**Upload ASRQ180 (xlsx file)**", type=["xlsx"])
+        "**Upload ASRQ180 file (xlsx)**", type=["xlsx"])
 
     if uploaded_file is not None:
         # Read the Excel file
-        df = pd.read_excel(uploaded_file)
+        # df = pd.read_excel(uploaded_file)
+
+        df = safe_read_excel(uploaded_file, [
+                             "Email", "Class Section", "Day", "Start Time", "End Time", "Name", "Catalog Nbr"])
 
         # Process the data
         with st.spinner("Processing your data..."):
@@ -388,7 +405,7 @@ if st.session_state.current_step == 0:  # Filter ASRQ180
 
 # Step 2: Merge Data
 elif st.session_state.current_step == 1:  # Merge ASRQ180 headers with Hiring Form
-    st.header("Step 2: Merge ASRQ180 with Hiring Form")
+    st.markdown("### Step 2: Merge ASRQ180 with Hiring Form")
     st.markdown("""
     **Objective**: Partial match 'Name' column from ASRQ180 with Hiring Form 'Full Name' Column.
     
@@ -407,7 +424,7 @@ elif st.session_state.current_step == 1:  # Merge ASRQ180 headers with Hiring Fo
     else:
         # File upload
         uploaded_file = st.file_uploader(
-            "Upload your lookup data file (Excel format)", type=["xlsx"])
+            "**Upload hiring form (xlsx)**", type=["xlsx"])
 
         if uploaded_file is not None:
             # Read the Excel file
@@ -466,7 +483,7 @@ elif st.session_state.current_step == 1:  # Merge ASRQ180 headers with Hiring Fo
 
 # Step 3: Expand with Dates
 elif st.session_state.current_step == 2:  # Expand rows with date range
-    st.header("Step 3: Expand rows with date range")
+    st.markdown("### Step 3: Expand rows with date range")
     st.markdown("""
     **Objective**: Create a set of date range with Day of Week and map to ARSQ180.
     
@@ -485,7 +502,7 @@ elif st.session_state.current_step == 2:  # Expand rows with date range
     else:
 
         # Date range inputs
-        st.subheader("Date Range Parameters")
+        st.markdown("##### Select date range (18 weeks)")
         col1, col2 = st.columns(2)
 
         with col1:
