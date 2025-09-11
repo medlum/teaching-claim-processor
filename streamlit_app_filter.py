@@ -13,8 +13,7 @@ st.set_page_config(
 )
 
 # Define step names
-STEP_NAMES = ['Clean Data', 'Merge Headers',
-              'Date Transform']
+STEP_NAMES = ['Clean Data', 'Merge Headers', 'Date Transform']
 
 # Initialize session state variables
 if 'step1_data' not in st.session_state:
@@ -25,6 +24,8 @@ if 'step3_data' not in st.session_state:
     st.session_state.step3_data = None
 if 'current_step' not in st.session_state:
     st.session_state.current_step = 0  # Using 0-based index for step names
+if 'excluded_sections' not in st.session_state:
+    st.session_state.excluded_sections = []
 
 
 def safe_read_excel(uploaded_file, required_columns=None):
@@ -33,7 +34,6 @@ def safe_read_excel(uploaded_file, required_columns=None):
     except Exception as e:
         st.error(f"Failed to read file: {e}")
         st.stop()
-
     if required_columns:
         missing = [c for c in required_columns if c not in df.columns]
         if missing:
@@ -41,10 +41,14 @@ def safe_read_excel(uploaded_file, required_columns=None):
             st.stop()
     return df
 
-
 # Define processing functions
-def filter_data(df):
+
+
+def filter_data(df, excluded_sections=None):
     """Step 1: Filter data by adjunct and remove duplicates in ARSQ180"""
+    if excluded_sections is None:
+        excluded_sections = []
+
     # Filter rows containing "@adj.np.edu.sg" in Email (case insensitive)
     email_filtered = df[df['Email'].str.contains(
         '@adj.np.edu.sg', case=False, na=False)]
@@ -57,9 +61,16 @@ def filter_data(df):
         letters = ''.join([char for char in str(value) if char.isalpha()])
         return len(letters) <= 2
 
-    # Apply the Class Section filter
-    filtered_df = email_filtered[email_filtered['Class Section'].apply(
-        has_max_two_letters)]
+    # Add a column to mark rows that should be excluded from the filter
+    email_filtered.loc[:, 'ExcludeFromFilter'] = email_filtered['Class Section'].isin(
+        excluded_sections)
+
+    # Apply the Class Section filter, but include any sections marked for exclusion
+    filtered_df = email_filtered[(email_filtered['Class Section'].apply(has_max_two_letters)) |
+                                 (email_filtered['ExcludeFromFilter'])]
+
+    # Drop the temporary column
+    filtered_df = filtered_df.drop('ExcludeFromFilter', axis=1)
 
     return filtered_df
 
@@ -69,13 +80,11 @@ def expand_day_column(df):
     expanded_rows = []
     #  Count rows with more than a single value: MON - SAT
     multidays_count = 0
-
     # Iterate over each row in the input DataFrame
     for _, row in df.iterrows():
         # Get the Day value and split it into individual days
         day_value = str(row['Day'])
         days = day_value.split()
-
         # If there's only one day, just add the row as is
         if len(days) <= 1:
             expanded_rows.append(row.to_dict())
@@ -86,7 +95,6 @@ def expand_day_column(df):
                 new_row['Day'] = day
                 expanded_rows.append(new_row.to_dict())
             multidays_count += 1
-
     # Create a new DataFrame from the expanded rows
     expanded_df = pd.DataFrame(expanded_rows)
     return multidays_count, expanded_df
@@ -99,7 +107,6 @@ def format_time_columns(df, columns):
         # Convert to datetime, then format as HH:MM:SS string
         df[col] = pd.to_datetime(
             df[col], format='%H:%M', errors='coerce').dt.strftime('%H:%M:%S')
-
     return df
 
 
@@ -118,12 +125,11 @@ def merge_with_partial_match(filtered_df, lookup_df):
     # Create a copy to avoid modifying original DataFrames
     filtered = filtered_df.copy()
     lookup = lookup_df.copy()
-
     # Preprocess names for comparison - convert to uppercase and split into words
     filtered['name_words'] = filtered['Name'].str.upper().str.split()
     lookup['lookup_words'] = lookup['Full Legal Name'].str.upper().str.split()
-
     # Function to check if names are a partial match
+
     def is_partial_match(name1, name2, min_common_tokens=2):
         # Convert to sets
         set1 = set(name1)
@@ -134,8 +140,8 @@ def merge_with_partial_match(filtered_df, lookup_df):
         # Check if there are enough common tokens
         common = set1.intersection(set2)
         return len(common) >= min_common_tokens
-
     # Improved function to check if catalog number and requester remarks have a partial match
+
     def is_catalog_match(catalog, remarks):
         # Handle NaN values
         if pd.isna(catalog) or pd.isna(remarks):
@@ -157,7 +163,6 @@ def merge_with_partial_match(filtered_df, lookup_df):
             if word_alpha and word_alpha in remarks_str:
                 return True
         return False
-
     # Create empty result DataFrame with Class Section
     result_columns = [
         'Empl ID',
@@ -175,27 +180,22 @@ def merge_with_partial_match(filtered_df, lookup_df):
         'Class Section'  # Added Class Section column
     ]
     result_df = pd.DataFrame(columns=result_columns)
-
     # Track unmatched rows
     unmatched_count = 0
     unmatched_rows = []  # Store unmatched rows here
-
     # Iterate through each row in filtered DataFrame
     for _, filt_row in filtered.iterrows():
         filt_name = filt_row['name_words']
         catalog_nbr = filt_row['Catalog Nbr'] if 'Catalog Nbr' in filt_row else None
         match_found = False
-
         # Iterate through each row in lookup DataFrame
         for _, lookup_row in lookup.iterrows():
             lookup_name = lookup_row['lookup_words']
             requester_remarks = lookup_row['Requester Remarks'] if 'Requester Remarks' in lookup_row else None
-
             # Check for partial name match
             name_match = is_partial_match(filt_name, lookup_name)
             # Check for catalog/remarks match
             catalog_match = is_catalog_match(catalog_nbr, requester_remarks)
-
             # If both conditions are met, create a new row
             if name_match and catalog_match:
                 # Create new row with required data including Class Section
@@ -220,16 +220,13 @@ def merge_with_partial_match(filtered_df, lookup_df):
                     [result_df, pd.DataFrame([new_row])], ignore_index=True)
                 match_found = True
                 break  # Stop after first match
-
         if not match_found:
             unmatched_count += 1
             # Store the original row without the added 'name_words' column
             # Class Section will be preserved if it exists
             unmatched_rows.append(filt_row.drop('name_words'))
-
     # Create DataFrame from unmatched rows
     unmatched_df = pd.DataFrame(unmatched_rows)
-
     # Return all three values: merged DataFrame, unmatched DataFrame, and unmatched count
     return result_df, unmatched_df, unmatched_count
 
@@ -248,19 +245,16 @@ def create_weekday_date_dict(start_date_str, end_date_str):
     # Parse input dates
     start_date = datetime.datetime.strptime(start_date_str, "%d %B %Y").date()
     end_date = datetime.datetime.strptime(end_date_str, "%d %B %Y").date()
-
     # Initialize weekday dictionary
     weekday_dict = {
         'Mon': [], 'Tue': [], 'Wed': [],
         'Thu': [], 'Fri': [], 'Sat': []
     }
-
     # Iterate through each date in the range
     current_date = start_date
     while current_date <= end_date:
         # Get weekday (0=Monday, 6=Sunday)
         weekday_num = current_date.weekday()
-
         # Skip Sundays (6)
         if weekday_num < 6:
             # Map weekday number to dictionary key
@@ -268,49 +262,37 @@ def create_weekday_date_dict(start_date_str, end_date_str):
                            'Thu', 'Fri', 'Sat'][weekday_num]
             # Add date in YYYY-MM-DD format
             weekday_dict[weekday_key].append(current_date.strftime("%Y-%m-%d"))
-
         # Move to next day
         current_date += datetime.timedelta(days=1)
-
     return weekday_dict
 
 
 def expand_df_with_dates(merged_df, start_date_str, end_date_str):
     """Step 3: Expand DataFrame with dates"""
-
     # Clean 'Program ID' column
     merged_df['Program ID'] = merged_df['Program ID'].astype(
         str).str.split().str[0].str.strip()
-
     # Get weekday-date mapping
     weekday_date_dict = create_weekday_date_dict(start_date_str, end_date_str)
-
     # Create a schedule_dict for map_dates_to_weeks
     schedule_dict = weekday_date_dict
-
     # Get week mapping
     week_mapping = map_dates_to_weeks(schedule_dict)
-
     # Define valid weekdays
     valid_days = {'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'}
-
     # Create a list to store expanded rows
     expanded_rows = []
     skipped_rows = 0
-
     # Process each row in the merged DataFrame
     for _, row in merged_df.iterrows():
         # Get the Day value and split into individual days
         day_str = str(row['Day']).strip()
-
         # Skip if empty
         if not day_str:
             skipped_rows += 1
             continue
-
         # Split the day string and clean each part
         day_parts = [part.strip() for part in day_str.split() if part.strip()]
-
         # Check each part to see if it's a valid weekday
         day_keys = []
         skip_row = False
@@ -326,11 +308,9 @@ def expand_df_with_dates(merged_df, start_date_str, end_date_str):
                 # Skip this row if any part is invalid
                 skip_row = True
                 break
-
         if skip_row:
             skipped_rows += 1
             continue
-
         # For each valid day key, create a row for each date
         for day_key in day_keys:
             for date in weekday_date_dict[day_key]:
@@ -345,13 +325,10 @@ def expand_df_with_dates(merged_df, start_date_str, end_date_str):
                 )
                 # Add to expanded rows
                 expanded_rows.append(new_row)
-
     # Create the expanded DataFrame
     expanded_df = pd.DataFrame(expanded_rows)
-
     # Reset index
     expanded_df.reset_index(drop=True, inplace=True)
-
     # Reorder final DataFrame columns as specified
     final_column_order = [
         'Empl ID',
@@ -369,11 +346,9 @@ def expand_df_with_dates(merged_df, start_date_str, end_date_str):
         'Catalog Nbr',
         'Comment'
     ]
-
     existing_columns = [
         col for col in final_column_order if col in expanded_df.columns]
     expanded_df = expanded_df[existing_columns]
-
     # Reorder columns to put 'Date' immediately after 'Day'
     if 'Day' in expanded_df.columns and 'Date' in expanded_df.columns:
         # Get list of columns
@@ -386,10 +361,8 @@ def expand_df_with_dates(merged_df, start_date_str, end_date_str):
         cols.insert(day_index + 1, 'Date')
         # Reorder the DataFrame columns
         expanded_df = expanded_df[cols]
-
     # Reset index to avoid duplicate indices
     expanded_df.reset_index(drop=True, inplace=True)
-
     return expanded_df, skipped_rows
 
 # Helper function to convert DataFrame to Excel for download
@@ -407,14 +380,12 @@ def to_excel(df):
 # Sidebar for navigation
 st.sidebar.markdown("**Workflow Steps**")
 # st.sidebar.markdown("### Current Step")
-
 # Create a radio button with step names
 selected_step_name = st.sidebar.radio(
     "**Select step**",
     STEP_NAMES,
     index=st.session_state.current_step
 )
-
 # Update current_step based on the selected step name
 st.session_state.current_step = STEP_NAMES.index(selected_step_name)
 
@@ -433,8 +404,9 @@ if st.session_state.current_step == 0:  # Filter ASRQ180
     
     **Instructions**: 
     1. Upload a ASRQ180 file.
-    2. The app will filter, remove and expand rows and display results.
-    3. Download the filtered data and proceed to Step 2.
+    2. Select Class Sections to exclude from the filter (these will bypass the 2-letter rule).
+    3. The app will filter, remove and expand rows and display results.
+    4. Download the filtered data and proceed to Step 2.
     """)
 
     # File upload
@@ -443,41 +415,77 @@ if st.session_state.current_step == 0:  # Filter ASRQ180
 
     if uploaded_file is not None:
         # Read the Excel file
-        # df = pd.read_excel(uploaded_file)
-
         df = safe_read_excel(uploaded_file, [
                              "Email", "Class Section", "Day", "Start Time", "End Time", "Name", "Catalog Nbr"])
 
-        # Process the data
-        with st.spinner("Processing your data..."):
-            filtered_df = filter_data(df)
-            # Format 'Start Time' and 'End Time' columns
-            filtered_df = format_time_columns(filtered_df,
-                                              ['Start Time',
-                                               'End Time'])
-            # Apply the expansion function to the filtered DataFrame
-            multiday, filtered_df = expand_day_column(filtered_df)
-            st.session_state.step1_data = filtered_df
+        # Get unique Class Sections for the multi-select widget
+        unique_sections = sorted(
+            df['Class Section'].dropna().unique().tolist())
 
-        # Display results
-        st.subheader("Filtered Data Results")
-        st.write(f"Original rows: {len(df)}")
-        st.write(f"Filtered rows: {len(filtered_df)}")
-        st.write(f"Expanded rows with multiple DAY: {multiday}")
-        st.dataframe(filtered_df)
-
-        # Download button
-        st.download_button(
-            label="Download Filtered Data",
-            data=to_excel(filtered_df),
-            file_name="filtered_results.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        # Multi-select widget for Class Sections to exclude
+        excluded_sections = st.multiselect(
+            "**Select class sections to exclude from the filter**",
+            options=unique_sections,
+            default=st.session_state.excluded_sections
         )
 
-        # Proceed to next step
-        if st.button("Proceed to Step 2"):
-            st.session_state.current_step = 1
-            st.rerun()
+        # Update session state with selected exclusions
+        st.session_state.excluded_sections = excluded_sections
+
+        # Show selected exclusions
+        if excluded_sections:
+            st.info(
+                f"Selected {len(excluded_sections)} Class Section(s) to exclude from the filter: {', '.join(excluded_sections)}")
+        else:
+            st.info(
+                "No Class Sections selected for exclusion. All sections will be subject to the 'max two letters' filter rule.")
+
+        # Check if data has been processed
+        if st.session_state.step1_data is not None:
+            # Display results
+            st.subheader("Filtered Data Results")
+            st.write(f"Original rows: {len(df)}")
+            st.write(f"Filtered rows: {len(st.session_state.step1_data)}")
+            st.write(
+                f"Expanded rows with multiple DAY: {st.session_state.multiday_count}")
+            st.dataframe(st.session_state.step1_data)
+
+            # Create two columns for buttons
+            # col1, col2, col3 = st.columns(3)
+
+            # with col1:
+            # Download button
+            st.download_button(
+                label="Download Filtered Data",
+                data=to_excel(st.session_state.step1_data),
+                file_name="filtered_results.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+            # with col2:
+            # Proceed to next step
+            if st.button("Proceed to Step 2"):
+                st.session_state.current_step = 1
+                st.rerun()
+            # with col2:
+            # Option to reprocess with different exclusions
+            if st.button("Reprocess with Different Exclusions"):
+                st.session_state.step1_data = None
+                st.rerun()
+        else:
+            # Process the data
+            if st.button("Process Data"):
+                with st.spinner("Processing your data..."):
+                    filtered_df = filter_data(df, excluded_sections)
+                    # Format 'Start Time' and 'End Time' columns
+                    filtered_df = format_time_columns(filtered_df,
+                                                      ['Start Time',
+                                                       'End Time'])
+                    # Apply the expansion function to the filtered DataFrame
+                    multiday, filtered_df = expand_day_column(filtered_df)
+                    st.session_state.step1_data = filtered_df
+                    st.session_state.multiday_count = multiday
+                st.rerun()  # Rerun to display results
     else:
         st.info("Please upload your main data file to begin processing.")
 
@@ -503,11 +511,9 @@ elif st.session_state.current_step == 1:  # Merge ASRQ180 headers with Hiring Fo
         # File upload
         uploaded_file = st.file_uploader(
             "**Upload hiring form (xlsx)**", type=["xlsx"])
-
         if uploaded_file is not None:
             # Read the Excel file
             lookup_df = pd.read_excel(uploaded_file)
-
             # Display column names for debugging
             st.subheader("Lookup File Columns")
             st.write("Column names in the uploaded lookup file:")
@@ -518,7 +524,6 @@ elif st.session_state.current_step == 1:  # Merge ASRQ180 headers with Hiring Fo
                                 'Position ID', 'Program ID', 'Requester Remarks']
             missing_columns = [
                 col for col in required_columns if col not in lookup_df.columns]
-
             if missing_columns:
                 st.error(
                     f"The lookup file is missing the following required columns: {', '.join(missing_columns)}")
@@ -549,7 +554,7 @@ elif st.session_state.current_step == 1:  # Merge ASRQ180 headers with Hiring Fo
                     label="Download Merged Data",
                     data=to_excel(merged_df),
                     file_name="merged_output.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    mime="application/vnd.openxmlformats-officedocumentml.sheet"
                 )
 
                 # Proceed to next step
@@ -578,11 +583,9 @@ elif st.session_state.current_step == 2:  # Expand rows with date range
             st.session_state.current_step = 1
             st.rerun()
     else:
-
         # Date range inputs
         st.markdown("##### Select date range (18 weeks)")
         col1, col2 = st.columns(2)
-
         with col1:
             start_date_obj = st.date_input(
                 "Start Date",
@@ -591,7 +594,6 @@ elif st.session_state.current_step == 2:  # Expand rows with date range
                 max_value=datetime.date(2030, 12, 31)
             )
             start_date = start_date_obj.strftime("%d %B %Y")
-
         with col2:
             end_date_obj = st.date_input(
                 "End Date",
@@ -621,8 +623,9 @@ elif st.session_state.current_step == 2:  # Expand rows with date range
                 label="Download Expanded Data",
                 data=to_excel(expanded_df),
                 file_name="expanded_with_dates.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                mime="application/vnd.openxmlformats-officedocumentml.sheet"
             )
+
             # Success message
             st.success("Processing complete! You can download your final data.")
         else:
@@ -638,9 +641,7 @@ st.sidebar.markdown("""
 4. Download the processed data
 5. Proceed to the next step
 """)
-
 st.sidebar.divider()
-
 st.sidebar.markdown("### About")
 st.sidebar.markdown("""
 This app processes adjunct lecturer data through three steps:

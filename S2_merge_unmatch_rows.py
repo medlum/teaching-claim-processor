@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 
+
 def merge_with_partial_match(filtered_df, lookup_df):
     """
     Merges two DataFrames based on partial name matching and catalog/remarks matching.
@@ -16,9 +17,11 @@ def merge_with_partial_match(filtered_df, lookup_df):
     # Create a copy to avoid modifying original DataFrames
     filtered = filtered_df.copy()
     lookup = lookup_df.copy()
+
     # Preprocess names for comparison - convert to uppercase and split into words
     filtered['name_words'] = filtered['Name'].str.upper().str.split()
     lookup['lookup_words'] = lookup['Full Legal Name'].str.upper().str.split()
+
     # Function to check if names are a partial match
     def is_partial_match(name1, name2, min_common_tokens=2):
         # Convert to sets
@@ -30,7 +33,7 @@ def merge_with_partial_match(filtered_df, lookup_df):
         # Check if there are enough common tokens
         common = set1.intersection(set2)
         return len(common) >= min_common_tokens
-    
+
     # Improved function to check if catalog number and requester remarks have a partial match
     def is_catalog_match(catalog, remarks):
         # Handle NaN values
@@ -53,7 +56,8 @@ def merge_with_partial_match(filtered_df, lookup_df):
             if word_alpha and word_alpha in remarks_str:
                 return True
         return False
-    # Create empty result DataFrame
+
+    # Create empty result DataFrame with Class Section
     result_columns = [
         'Empl ID',
         'Full Legal Name',
@@ -66,28 +70,34 @@ def merge_with_partial_match(filtered_df, lookup_df):
         'Comment',
         'Day',
         'Catalog Nbr',
-        'Name'
+        'Name',
+        'Class Section'  # Added Class Section column
     ]
     result_df = pd.DataFrame(columns=result_columns)
+
     # Track unmatched rows
     unmatched_count = 0
     unmatched_rows = []  # Store unmatched rows here
+
     # Iterate through each row in filtered DataFrame
     for _, filt_row in filtered.iterrows():
         filt_name = filt_row['name_words']
         catalog_nbr = filt_row['Catalog Nbr'] if 'Catalog Nbr' in filt_row else None
         match_found = False
+
         # Iterate through each row in lookup DataFrame
         for _, lookup_row in lookup.iterrows():
             lookup_name = lookup_row['lookup_words']
             requester_remarks = lookup_row['Requester Remarks'] if 'Requester Remarks' in lookup_row else None
+
             # Check for partial name match
             name_match = is_partial_match(filt_name, lookup_name)
             # Check for catalog/remarks match
             catalog_match = is_catalog_match(catalog_nbr, requester_remarks)
+
             # If both conditions are met, create a new row
             if name_match and catalog_match:
-                # Create new row with required data
+                # Create new row with required data including Class Section
                 new_row = {
                     'Empl ID': lookup_row['Empl ID'],
                     'Full Legal Name': lookup_row['Full Legal Name'],
@@ -100,34 +110,45 @@ def merge_with_partial_match(filtered_df, lookup_df):
                     'Comment': lookup_row['Requester Remarks'],
                     'Day': filt_row['Day'],
                     'Catalog Nbr': filt_row['Catalog Nbr'],
-                    'Name': filt_row['Name']
+                    'Name': filt_row['Name'],
+                    # Added Class Section
+                    'Class Section': filt_row.get('Class Section', None)
                 }
                 # Append to result
                 result_df = pd.concat(
                     [result_df, pd.DataFrame([new_row])], ignore_index=True)
                 match_found = True
                 break  # Stop after first match
+
         if not match_found:
             unmatched_count += 1
             # Store the original row without the added 'name_words' column
+            # Class Section will be preserved if it exists
             unmatched_rows.append(filt_row.drop('name_words'))
+
     # Create DataFrame from unmatched rows
     unmatched_df = pd.DataFrame(unmatched_rows)
-    
+
     # Return all three values: merged DataFrame, unmatched DataFrame, and unmatched count
     return result_df, unmatched_df, unmatched_count
+
 
 # Read the Excel files
 filtered_df = pd.read_excel('processed_data/filtered_results.xlsx')
 # test file: position_program_id_lookup.xlsx
 lookup_df = pd.read_excel('subset_data/all_hiring_form.xlsx')
+
 # Print column names for debugging
 print("Columns in filtered DataFrame:", filtered_df.columns.tolist())
 print("Columns in lookup DataFrame:", lookup_df.columns.tolist())
+
 # Perform the merge with partial matching
-result_df, unmatched_df, unmatched_count = merge_with_partial_match(filtered_df, lookup_df)
+result_df, unmatched_df, unmatched_count = merge_with_partial_match(
+    filtered_df, lookup_df)
+
 # Save the result
 result_df.to_excel('processed_data/merged_output.xlsx', index=False)
+
 # Display the first few rows
 print("\nMerged result sample:")
 print(result_df.head())
@@ -136,6 +157,7 @@ print(result_df.head())
 print(f"\nProcessed {len(filtered_df)} rows from filtered DataFrame")
 print(f"Found matches for {len(result_df)} rows")
 print(f"Unmatched rows: {unmatched_count}")
+
 if unmatched_count > 0:
     print("\nSample of unmatched rows:")
     print(unmatched_df.head())

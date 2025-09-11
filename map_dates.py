@@ -44,6 +44,17 @@ def create_weekday_date_dict(start_date_str, end_date_str):
     return weekday_dict
 
 
+def map_dates_to_weeks(schedule_dict):
+    week_mapping = {}
+
+    for day, dates in schedule_dict.items():
+        for index, date in enumerate(dates):
+            week_number = f"Week {index + 1}"
+            week_mapping[date] = week_number
+
+    return week_mapping
+
+
 # Example usage:
 start_date = "21 April 2025"
 end_date = "23 August 2025"
@@ -52,3 +63,10 @@ result = create_weekday_date_dict(start_date, end_date)
 # Print the result
 for day, dates in result.items():
     print(f"{day}: {dates[:5]}...")  # Show first 5 dates for each day
+
+# Print week number 1
+week_mapping = map_dates_to_weeks(result)
+print(week_mapping)
+# Example output:
+for date, week in sorted(week_mapping.items()):
+    print(f"{date}: {week}")

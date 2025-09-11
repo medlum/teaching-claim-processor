@@ -2,6 +2,15 @@ import pandas as pd
 import datetime
 
 
+def map_dates_to_weeks(schedule_dict):
+    week_mapping = {}
+    for day, dates in schedule_dict.items():
+        for index, date in enumerate(dates):
+            week_number = f"Week {index + 1}"
+            week_mapping[date] = week_number
+    return week_mapping
+
+
 def create_weekday_date_dict(start_date_str, end_date_str):
     """
     Creates a dictionary mapping weekdays (Mon-Sat) to dates within a specified range.
@@ -46,16 +55,26 @@ def expand_df_with_dates(merged_df, start_date_str, end_date_str):
     """
     Expands DataFrame by duplicating rows for each date in the 'Day' column.
     Skips rows with invalid day entries.
-    Places 'Date' column immediately after 'Day' column.
+    Places 'Date' and 'Week Number' columns immediately after 'Day' column.
     Args:
         merged_df (pd.DataFrame): Input DataFrame with 'Day' column
         start_date_str (str): Start date in format "DD Month YYYY"
         end_date_str (str): End date in format "DD Month YYYY"
     Returns:
-        pd.DataFrame: Expanded DataFrame with 'Date' column after 'Day' column
+        pd.DataFrame: Expanded DataFrame with 'Date' and 'Week Number' columns after 'Day' column
     """
+    # Clean 'Program ID' column
+    merged_df['Program ID'] = merged_df['Program ID'].astype(
+        str).str.split().str[0].str.strip()
+
     # Get weekday-date mapping
     weekday_date_dict = create_weekday_date_dict(start_date_str, end_date_str)
+
+    # Create a schedule_dict for map_dates_to_weeks
+    schedule_dict = weekday_date_dict
+
+    # Get week mapping
+    week_mapping = map_dates_to_weeks(schedule_dict)
 
     # Define valid weekdays
     valid_days = {'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'}
@@ -104,22 +123,54 @@ def expand_df_with_dates(merged_df, start_date_str, end_date_str):
                 new_row = row.copy()
                 # Add the Date column
                 new_row['Date'] = date
+                # Add the Week Number column
+                new_row['Week Number'] = week_mapping[date]
+                # 👇 Update Comment with concatenated values
+                new_row['Comment'] = f"{new_row['Week Number']}_{day_key}_{str(new_row['Catalog Nbr']).strip()}_{new_row['Class Section']}_{new_row['Full Legal Name']}".upper(
+                )
                 # Add to expanded rows
                 expanded_rows.append(new_row)
 
     # Create the expanded DataFrame
     expanded_df = pd.DataFrame(expanded_rows)
 
-    # Reorder columns to put 'Date' immediately after 'Day'
-    if 'Day' in expanded_df.columns and 'Date' in expanded_df.columns:
+    # Reset index
+    expanded_df.reset_index(drop=True, inplace=True)
+
+    # Reorder final DataFrame columns as specified
+    final_column_order = [
+        'Empl ID',
+        'Full Legal Name',
+        'Name',
+        'Time entry code',
+        'Date',
+        'Day',
+        'Week Number',
+        'Start Time',
+        'End Time',
+        'Position ID',
+        'Program ID',
+        'Class Section',
+        'Catalog Nbr',
+        'Comment'
+    ]
+
+    existing_columns = [
+        col for col in final_column_order if col in expanded_df.columns]
+    expanded_df = expanded_df[existing_columns]
+
+    # Reorder columns to put 'Date' and 'Week Number' immediately after 'Day'
+    if 'Day' in expanded_df.columns and 'Date' in expanded_df.columns and 'Week Number' in expanded_df.columns:
         # Get list of columns
         cols = list(expanded_df.columns)
         # Find the index of 'Day' column
         day_index = cols.index('Day')
-        # Remove 'Date' from its current position
+        # Remove 'Date' and 'Week Number' from their current positions
         cols.remove('Date')
-        # Insert 'Date' right after 'Day'
+        cols.remove('Week Number')
+        # Insert 'Date' and 'Week Number' right after 'Day'
         cols.insert(day_index + 1, 'Date')
+        cols.insert(day_index + 2, 'Week Number')
         # Reorder the DataFrame columns
         expanded_df = expanded_df[cols]
 
@@ -137,13 +188,10 @@ def expand_df_with_dates(merged_df, start_date_str, end_date_str):
 # Example usage:
 start_date = "21 April 2025"
 end_date = "23 August 2025"
-
 # Apply the function to expand the DataFrame
 merged_df = pd.read_excel('processed_data/merged_output.xlsx')
 expanded_df = expand_df_with_dates(merged_df, start_date, end_date)
-
 # Display the result
 print(expanded_df.head())
-
 # Save to new Excel file
 expanded_df.to_excel('processed_data/expanded_with_dates.xlsx', index=False)

@@ -5,7 +5,8 @@ df = pd.read_excel('subset_data/all_asrq180.xlsx')
 
 # Filter rows containing "@adj.np.edu.sg" in Email (case insensitive)
 email_filtered = df[df['Email'].str.contains(
-    '@adj.np.edu.sg', case=False, na=False)]
+    '@adj.np.edu.sg', case=False, na=False)].copy()
+
 
 # Define function to check if Class Section has ≤2 letters
 
@@ -47,12 +48,37 @@ def expand_day_column(df):
     return multidays_count, expanded_df
 
 
+# New function to format time columns
+def format_time_columns(df, columns):
+    for col in columns:
+        # Convert to datetime, then format as HH:MM:SS string
+        df.loc[:, col] = pd.to_datetime(
+            df[col], format='%H:%M:%S', errors='coerce').dt.strftime('%H:%M:%S')
+
+    return df
+
+
+excluded_sections = ['TSP1', 'WSP1']  # User-specified list
+
+email_filtered.loc[:, 'ExcludeFromFilter'] = email_filtered['Class Section'].isin(
+    excluded_sections)
+
+
+filtered_df = email_filtered[(email_filtered['Class Section'].apply(has_max_two_letters)) |
+                             (email_filtered['ExcludeFromFilter'])
+                             ]
+
+
 # Apply the Class Section filter
-filtered_df = email_filtered[email_filtered['Class Section'].apply(
-    has_max_two_letters)]
+# filtered_df = email_filtered[email_filtered['Class Section'].apply(
+#    has_max_two_letters)]
+
+# Format 'Start Time' and 'End Time' columns
+formatted_time_df = format_time_columns(
+    filtered_df, ['Start Time', 'End Time'])
 
 # Apply the expansion function to the filtered DataFrame
-multidays_count, expanded_df = expand_day_column(filtered_df)
+multidays_count, expanded_df = expand_day_column(formatted_time_df)
 
 print(multidays_count)
 # Display the result

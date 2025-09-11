@@ -1,0 +1,28 @@
+
+
+TSP
+WSP
+77 related section is "sports school" contain 3 letters
+
+
+term one and two could be taught by different staff
+
+multi-select exceptions
+
+
+email included in merge. 
+
+time format include seconds 00:00:00
+
+
+Program_id in hiring form when merge, discarded (ACC)
+NPO_PR0202 (ACC) 
+
+
+To create comment column with values like:
+
+Week 11_MON_PL_ECE_W01_NGIAM TEE WOH
+
+I need to merge column 'Class Section' from all_asrq180 during S2_merge_unmatch_rows.py
+
+I need 'Week Number' which is not created previously. 
