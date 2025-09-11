@@ -4,7 +4,11 @@ import datetime
 import numpy as np
 from io import BytesIO
 
-# Set page configuration
+
+###############################################
+#   APP CONFIGURATION                         #
+#   - Set Streamlit page settings             #
+###############################################
 st.set_page_config(
     page_title="Teaching Claim Process",
     page_icon="📊",
@@ -12,7 +16,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Define step names
+###############################################
+#   SESSION STATE VARIABLES                   #
+#   - Store step data and navigation state    #
+###############################################
 STEP_NAMES = ['Clean Data', 'Merge Headers', 'Date Transform']
 
 # Initialize session state variables
@@ -26,6 +33,11 @@ if 'current_step' not in st.session_state:
     st.session_state.current_step = 0  # Using 0-based index for step names
 if 'excluded_sections' not in st.session_state:
     st.session_state.excluded_sections = []
+
+###############################################
+#   HELPER FUNCTIONS                          #
+#   - Generic utility functions               #
+###############################################
 
 
 def safe_read_excel(uploaded_file, required_columns=None):
@@ -42,6 +54,10 @@ def safe_read_excel(uploaded_file, required_columns=None):
     return df
 
 # Define processing functions
+###############################################
+#   STEP 1 FUNCTIONS  (Filter / Clean Data)   #
+#   - Filter by adjunct, clean + expand rows  #
+###############################################
 
 
 def filter_data(df, excluded_sections=None):
@@ -51,9 +67,10 @@ def filter_data(df, excluded_sections=None):
 
     # Filter rows containing "@adj.np.edu.sg" in Email (case insensitive)
     email_filtered = df[df['Email'].str.contains(
-        '@adj.np.edu.sg', case=False, na=False)]
+        '@adj.np.edu.sg', case=False, na=False)].copy()
 
     # Define function to check if Class Section has ≤2 letters
+
     def has_max_two_letters(value):
         if pd.isna(value):
             return False  # Handle missing values
@@ -108,6 +125,11 @@ def format_time_columns(df, columns):
         df[col] = pd.to_datetime(
             df[col], format='%H:%M', errors='coerce').dt.strftime('%H:%M:%S')
     return df
+
+###############################################
+#   STEP 2 FUNCTIONS  (Merge Data)            #
+#   - Match names/catalog between datasets    #
+###############################################
 
 
 def merge_with_partial_match(filtered_df, lookup_df):
@@ -229,6 +251,11 @@ def merge_with_partial_match(filtered_df, lookup_df):
     unmatched_df = pd.DataFrame(unmatched_rows)
     # Return all three values: merged DataFrame, unmatched DataFrame, and unmatched count
     return result_df, unmatched_df, unmatched_count
+
+###############################################
+#   STEP 3 FUNCTIONS  (Date Expansion)        #
+#   - Map weekdays to dates & expand dataset  #
+###############################################
 
 
 def map_dates_to_weeks(schedule_dict):
@@ -367,6 +394,11 @@ def expand_df_with_dates(merged_df, start_date_str, end_date_str):
 
 # Helper function to convert DataFrame to Excel for download
 
+###############################################
+#   UTILITIES (Export, Conversion)            #
+#   - Convert DataFrame to downloadable Excel #
+###############################################
+
 
 def to_excel(df):
     output = BytesIO()
@@ -377,9 +409,11 @@ def to_excel(df):
     return processed_data
 
 
-# Sidebar for navigation
+###############################################
+#   SIDEBAR NAVIGATION                        #
+#   - Step selector and instructions          #
+###############################################
 st.sidebar.markdown("**Workflow Steps**")
-# st.sidebar.markdown("### Current Step")
 # Create a radio button with step names
 selected_step_name = st.sidebar.radio(
     "**Select step**",
@@ -389,11 +423,19 @@ selected_step_name = st.sidebar.radio(
 # Update current_step based on the selected step name
 st.session_state.current_step = STEP_NAMES.index(selected_step_name)
 
-# Main content area
+###############################################
+#   MAIN UI - TITLE & INTRO                   #
+#   - Page title and workflow description     #
+###############################################
+
 st.title(":blue[Teaching Claim Workflow]")
 st.markdown("#### :gray[Process your data in three simple steps]")
 
-# Step 1: Filter Data
+###############################################
+#   STEP 1 - FILTER DATA                      #
+#   - Upload ASRQ180, clean & expand rows     #
+###############################################
+
 if st.session_state.current_step == 0:  # Filter ASRQ180
     st.markdown("### Step 1: Filter ASRQ180")
     st.markdown("""
@@ -489,7 +531,11 @@ if st.session_state.current_step == 0:  # Filter ASRQ180
     else:
         st.info("Please upload your main data file to begin processing.")
 
-# Step 2: Merge Data
+###############################################
+#   STEP 2 - MERGE DATA                       #
+#   - Upload hiring form & partial merge      #
+###############################################
+
 elif st.session_state.current_step == 1:  # Merge ASRQ180 headers with Hiring Form
     st.markdown("### Step 2: Merge ASRQ180 with Hiring Form")
     st.markdown("""
@@ -564,7 +610,11 @@ elif st.session_state.current_step == 1:  # Merge ASRQ180 headers with Hiring Fo
         else:
             st.info("Please upload your lookup data file.")
 
-# Step 3: Expand with Dates
+###############################################
+#   STEP 3 - EXPAND WITH DATES                #
+#   - Apply date range and expand final data  #
+###############################################
+
 elif st.session_state.current_step == 2:  # Expand rows with date range
     st.markdown("### Step 3: Expand rows with date range")
     st.markdown("""
@@ -631,7 +681,12 @@ elif st.session_state.current_step == 2:  # Expand rows with date range
         else:
             st.info("Click 'Expand Data' to process with the selected date range.")
 
-# Footer
+
+###############################################
+#   FOOTER / SIDEBAR INFO                     #
+#   - Instructions & About section            #
+###############################################
+
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Instructions")
 st.sidebar.markdown("""
